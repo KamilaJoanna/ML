@@ -1,0 +1,127 @@
+---
+title: "Practical Machine Learning - Assignment"
+author: "Kamila G¹sior"
+date: "29 lipca 2018"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Background
+
+Using devices such as Jawbone Up, Nike FuelBand, and Fitbit it is now possible to collect a large amount of data about personal activity relatively inexpensively. These type of devices are part of the quantified self movement – a group of enthusiasts who take measurements about themselves regularly to improve their health, to find patterns in their behavior, or because they are tech geeks. One thing that people regularly do is quantify how much of a particular activity they do, but they rarely quantify how well they do it.
+
+The goal of this project is to use data from accelerometers on the belt, forearm, arm and dumbell of six participants. They were asked to perform barbell lifts correctly and incorrectly in five different ways. The aim is to predict, using the data from accelerometers, the manner in which way they performed the excercise.
+
+## Data
+
+The data comes from the website http://web.archive.org/web/20161224072740/http:/groupware.les.inf.puc-rio.br/har . There are two parts: training data set and test data set.
+
+```{r}
+
+library(randomForest)
+library(caret)
+library(rattle)
+library(e1071)
+library(parallel)
+library(doParallel)
+library(ggplot2)
+
+setwd("D:/ML")
+
+data_training <- read.csv("./training.csv", na.strings = c("", "NA", "NULL"))
+data_testing <- read.csv("./testing.csv", na.strings = c("", "NA", "NULL"))
+
+dim(data_training)
+dim(data_testing)
+```
+
+The outcome variable is classe and it is factor variable with five levels: A, B, C, D, E.
+
+```{r}
+str(data_training$classe)
+qplot(data_training$classe)
+```
+
+
+## Cleaning data
+In data sets there is a lot of variables that has NA value. So, I remove columns where there is at least one missing observation. Also, I remove first seven columns, because they are unrelevant (there are some technical informations about participants).
+
+```{r}
+data_training_w_na <- data_training[, colSums(is.na(data_training)) == 0 ]
+testing <- data_testing[, colSums(is.na(data_training)) == 0 ]
+testing <- testing[ , -c(1:7)]
+
+```
+
+For cross validation purpose, I divide data_training_w_na set by two subsets: training and validating set.
+```{r}
+set.seed(98765)
+inTrain  <- createDataPartition(data_training_w_na$classe, p=0.7, list=FALSE)
+training <- data_training_w_na[inTrain, ]
+training <- training[ , -c(1:7)]
+validating  <- data_training_w_na[-inTrain, ]
+validating <- validating[ , -c(1:7)]
+```
+
+## Fitting model
+
+I consider two types of models: random forest and generalized boosted model.
+
+### Random Forest
+
+```{r}
+y <- training[ ,53]
+x <- training[ ,-53]
+
+cluster <- makeCluster(detectCores() - 1)
+registerDoParallel(cluster)
+
+fitControl <- trainControl(method = "cv", number = 5, allowParallel = TRUE)
+set.seed(98766)
+model_rf<-train(x, y, method="rf", trControl = fitControl, data=training)
+
+stopCluster(cluster)
+registerDoSEQ()
+
+model_rf$finalModel
+predict_rf<-predict(model_rf, newdata = validating)
+CM_rf_validating <- confusionMatrix(predict_rf, validating$classe)$overall['Accuracy']
+CM_rf_validating
+```
+
+I use Accuracy measure on validating set. Value 0,99 indicates good fit of the model.
+
+### Generalized Boosted Model
+
+```{r}
+cluster <- makeCluster(detectCores() - 1)
+registerDoParallel(cluster)
+
+gbmControl <- trainControl(method = "cv", number = 5, classProbs = TRUE, allowParallel = TRUE)
+set.seed(98767)
+model_gbm<-train(classe ~ ., method="gbm", data=training, trControl = gbmControl)
+
+stopCluster(cluster)
+registerDoSEQ()
+
+model_gbm$finalModel
+predict_gbm<-predict(model_gbm,newdata=validating)
+CM_gbm_validating <-confusionMatrix(predict_gbm, validating$classe)$overall['Accuracy']
+CM_gbm_validating
+```
+
+Accuracy value 0,96 means that it is also a very good fit.
+
+## Conclusion
+
+I apply models on validating set and use Accuracy measure to make a decision. Random forest method has a slighty higher value, so I use this model to predict classe variable on test data set.
+
+```{r}
+TEST_predict_model <- predict(model_rf, newdata = testing)
+TEST_predict_model
+```
+
+I use the above results to complete the quiz.
